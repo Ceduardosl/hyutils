@@ -94,50 +94,81 @@ def NSE(para, area, prec, pet, obs, i):
 #BH1 = BH7...
 #%%
 basins = ["BH1", "BH2", "BH3", "BH4"]
-basin = basins[1]
+
 dict_period = {
-    "BH1": {"P1": [1985, 1996], "P2": [1996, 2015]},
-    "BH2": {"P1": [1985, 1996], "P2": [1996, 2015]},
-    "BH3": {"P1": [1985, 1996], "P2": [1996, 2015]},
-    "BH4": {"P1": [1985, 2000], "P2": [2000, 2008]},
+    "BH1": {"P1": [1985, 1996], "P2": [1996, 2015], "area": 16795.26},
+    "BH2": {"P1": [1985, 1996], "P2": [1996, 2015], "area": 30932.46},
+    "BH3": {"P1": [1985, 1996], "P2": [1996, 2015], "area": 36316.00},
+    "BH4": {"P1": [1985, 2000], "P2": [2000, 2015], "area": 23219.62},
 }
-data = pd.read_excel("Basins_EPQ.xlsx", sheet_name = basin, index_col = 0)
-p1 = data.loc[
-    (data.index.year >= dict_period[basin]["P1"][0]) &
-    (data.index.year < dict_period[basin]["P1"][1])]
+for basin in basins:
+    data = pd.read_excel("Basins_EPQ.xlsx", sheet_name = basin, index_col = 0)
+    p1 = data.loc[
+        (data.index.year >= dict_period[basin]["P1"][0]) &
+        (data.index.year < dict_period[basin]["P1"][1])]
 
-p2 = data.loc[
-    (data.index.year >= dict_period[basin]["P2"][0]) &
-    (data.index.year < dict_period[basin]["P2"][1])]
+    p2 = data.loc[
+        (data.index.year >= dict_period[basin]["P2"][0]) &
+        (data.index.year <= dict_period[basin]["P2"][1])]
 
+    initial_params = [5000, 5.84130544, 4.202310867, 6, 59.10868637, 180.130]
+    bounds_params = ((400, 5000), (0.1, 10), (0, 70), (1, 6), (0, np.inf), (0, np.inf))
+    area = dict_period[basin]["area"]
 
-#%%
-min_win = 8 #janela mínima de anos
-for i in range(0, len(p1.index), 12):
-    for j in range(len(p1.index), (min_win-1)*12, -12):
-        if i + j <= len(p1.index):
-            print("Dentro do período - {} - {}".format(
-                pd.date_range(p1.index[i], periods = j, freq = "M")[0],
-                pd.date_range(p1.index[i], periods = j, freq = "M")[-1]))
-        else: 
-            print("Fora do período - {} - {}".format(
-                pd.date_range(p1.index[i], periods = j, freq = "M")[0],
-                pd.date_range(p1.index[i], periods = j, freq = "M")[-1]))
-
-#%%
-# print(pd.date_range(p1.index[0], periods = i, freq = "M"))
-# window = pd.date_range(p1.index[0], periods = (8+1)*12, freq = "M")
-#%%
-
-#Criar um dicionário
-# Bacia, Inicio, FInal, Aquecimento, Area, Params
-#sat, pes, crec, k, tuin, ebin
-df = data.loc[(data.index.year >= 2005) & (data.index.year <= 2015)]
-initial_params = [5000, 5.84130544, 4.202310867, 6, 59.10868637, 180.130]
-bounds_params = ((400, 5000), (0.1, 10), (0, 70), (1, 6), (0, np.inf), (0, np.inf))
-area = 16856.2
-i = 0
-
-res = minimize(fun = NSE, x0 = initial_params, args = (area, df.P, df.ETP, df.Q, i), bounds = bounds_params)
-print(res.fun)
-df.insert(len(df.columns), "smapm", smapm(area, res.x, df.P, df.ETP)[0])
+    # quebrar aqui
+    min_win = 8 #janela mínima de anos
+    warm = 12 #Mês seco + 1 ano
+    p1_max = {"ini": np.nan, "fim": np.nan, "NSE": 0, "args": np.nan }
+    p2_max = {"ini": np.nan, "fim": np.nan, "NSE": 0, "args": np.nan }
+    with open("{} - P1.txt".format(basin), "w") as f_p1:
+        f_p1.write("args = (sat, pes, crec, k, tuin, ebin) \n") 
+        for i in range(0, len(p1.index), 12):
+            for j in range(len(p1.index), (min_win-1)*12, -12):
+                if i + j <= len(p1.index):
+                    df = p1.loc[
+                        (p1.index.year >= pd.date_range(p1.index[i], periods = j, freq = "M")[0].year) &
+                        (p1.index.year <= pd.date_range(p1.index[i], periods = j, freq = "M")[-1].year)]
+                    res = minimize (fun = NSE, x0 = initial_params, args = (area, df.P[7:], df.ETP[7:], df.Q[7:], warm), bounds = bounds_params)
+                    #df.P[7:] para iniciar no último mês seco
+                    f_p1.write("Periodo {} - {}; NSE = {}\n".format(
+                            df.index.year[0], df.index.year[-1], -res.fun
+                            ))
+                    if -res.fun > p1_max["NSE"]:
+                        p1_max["ini"] = df.index.year[0]
+                        p1_max["fim"] = df.index.year[-1]
+                        p1_max["NSE"] = -res.fun
+                        p1_max["args"] = list(res.x)
+                    else:
+                        continue
+                else:
+                    continue 
+        f_p1.write("##### Best NSE #####\n")
+        f_p1.write("Periodo {} - {}; NSE = {}; params = {}".format(
+            p1_max["ini"], p1_max["fim"], p1_max["NSE"], p1_max["args"]))
+    
+        with open("{} - P2.txt".format(basin), "w") as f_p2:
+            f_p2.write("args = (sat, pes, crec, k, tuin, ebin) \n") 
+            for i in range(0, len(p2.index), 12):
+                for j in range(len(p2.index), (min_win-1)*12, -12):
+                    if i + j <= len(p2.index):
+                        df = p2.loc[
+                            (p2.index.year >= pd.date_range(p2.index[i], periods = j, freq = "M")[0].year) &
+                            (p2.index.year <= pd.date_range(p2.index[i], periods = j, freq = "M")[-1].year)]
+                        res = minimize (fun = NSE, x0 = initial_params, args = (area, df.P[7:], df.ETP[7:], df.Q[7:], warm), bounds = bounds_params)
+                        #df.P[7:] para iniciar no último mês seco
+                        f_p2.write("Periodo {} - {}; NSE = {}\n".format(
+                                df.index.year[0], df.index.year[-1], -res.fun
+                                ))
+                        if -res.fun > p2_max["NSE"]:
+                            p2_max["ini"] = df.index.year[0]
+                            p2_max["fim"] = df.index.year[-1]
+                            p2_max["NSE"] = -res.fun
+                            p2_max["args"] = list(res.x)
+                        else:
+                            continue
+                    else:
+                        continue 
+            f_p2.write("##### Best NSE #####\n")
+            f_p2.write("Periodo {} - {}; NSE = {}; params = {}".format(
+                p2_max["ini"], p2_max["fim"], p2_max["NSE"], p2_max["args"]))        
+# %%
