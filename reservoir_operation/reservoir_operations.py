@@ -16,13 +16,13 @@ def get_cap (cota, volume, cs):
 
     if (cota == cs).any():
 
-        cap = volume[np.where(cota == cs)]
+        cap = volume[np.where(cota == cs)][0]
     
     else:
 
         cap = np.interp(cs, cota, volume)
 
-    return cap[0]
+    return cap
 
 
 def optimize_alpha_beta(params, area, volume):
